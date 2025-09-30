@@ -1,0 +1,56 @@
+# .github/workflows/trivy.yml
+name: Trivy Security
+on:
+  push: { branches: [ main, master ] }
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  fs-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          ignore-unfixed: true
+          format: sarif
+          output: trivy-fs.sarif
+      - name: Upload SARIF
+        # Skip on forked PRs (no write token there)
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+
+  image-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Containerfile
+          push: false
+          load: true
+          tags: openanalyst-studio:scan
+      - uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: app:scan
+          format: sarif
+          output: trivy-image.sarif
+          ignore-unfixed: true
+      - name: Upload SARIF
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif

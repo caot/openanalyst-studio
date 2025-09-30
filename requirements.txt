@@ -1,0 +1,25 @@
+# Requirements for Simple Data Analysis Agent (Following Roadmap)
+# Core dependencies as specified in roadmap
+
+# Web framework
+streamlit
+langchain_core
+langchain_openai
+# LangChain components  
+langchain
+langchain-community
+
+# Data processing
+pandas
+plotly
+matplotlib
+seaborn
+
+# File handling (from roadmap)
+openpyxl
+python-docx
+PyPDF2
+
+tenacity>=8.2
+structlog>=24.1
+pytest

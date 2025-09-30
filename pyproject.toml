@@ -1,0 +1,21 @@
+[project.scripts]
+openanalyst = "openanalyst_studio.app:main"
+
+[tool.ruff]
+target-version = "py311"
+# line-length = 100
+fix = true  # allow autofixes when running `ruff check`
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]  # include "W" to catch W291/W293
+fixable = ["ALL"]                          # or list specific codes
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+ignore_missing_imports = true
