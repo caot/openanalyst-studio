@@ -1,162 +1,134 @@
-# openanalyst_studio/tools/llm.py
-from __future__ import annotations
-
-import json
+# tools/llm.py
 import os
 from functools import lru_cache
 from typing import Any, Dict, Optional, Tuple
 
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, AzureChatOpenAI
 
-# Optional Azure support (only used if OPENAI_API_TYPE=azure)
-try:  # pragma: no cover
-    from langchain_openai import AzureChatOpenAI
-except Exception:  # pragma: no cover
-    AzureChatOpenAI = None  # type: ignore[misc,assignment]
-
-# -----------------------
-# Secrets / Config helpers
-# -----------------------
+# ------- tiny helpers -------
 
 
 def _secrets() -> Dict[str, Any]:
-    """Return Streamlit secrets if available, else empty dict."""
-    try:  # pragma: no cover
-        import streamlit as st
-        return dict(st.secrets)  # shallow copy
+    try:
+        import streamlit as st  # type: ignore
+        return dict(st.secrets)  # copy into a plain dict
     except Exception:
         return {}
 
 
 def _cfg(key: str, default: Optional[str]=None) -> Optional[str]:
-    """
-    Read from Streamlit secrets first, then environment; finally default.
-    Empty strings are treated as unset.
-    """
+    """Config lookup: Streamlit secrets -> env -> default. Empty string -> None."""
     s = _secrets()
-    if key in s and s[key] not in (None, ""):
-        return str(s[key])
+    v = s.get(key)
+    if v not in (None, ""):
+        return str(v)
     v = os.getenv(key)
     return v if v not in (None, "") else default
+
+
+def _parse_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        v = value.strip()
+        if v == "":
+            return None
+        try:
+            return int(v)
+        except ValueError:
+            return None
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _clean_model_kwargs(mk_in):
+    if not mk_in: return {}
+    reserved = {"seed", "response_format"}
+    return {k: v for k, v in mk_in.items() if v not in ("", None) and k not in reserved}
 
 
 def _normalize_model_kwargs(
     extra: Optional[Dict[str, Any]]=None,
     response_format: Optional[Dict[str, Any]]=None,
 ) -> Dict[str, Any]:
-    """
-    Merge arbitrary model kwargs with response_format in a new dict.
-    Ensures we never return None (important for cache key stability).
-    """
-    mk: Dict[str, Any] = dict(extra or {})
+    mk = _clean_model_kwargs(extra)
     if response_format:
         mk["response_format"] = response_format
     return mk
 
 
-def _bool_flag(val: Optional[str], default: bool=False) -> bool:
-    if val is None:
-        return default
-    return str(val).strip().lower() in {"1", "true", "yes", "y", "on"}
+def _mk_cache_key(**kw: Any) -> Tuple:
+    """Stable, hashable cache key."""
 
-# -----------------------
-# Internal cached factory
-# -----------------------
+    def _freeze(x: Any) -> Any:
+        if isinstance(x, dict):
+            return tuple(sorted((k, _freeze(v)) for k, v in x.items()))
+        if isinstance(x, (list, tuple, set)):
+            return tuple(_freeze(v) for v in x)
+        return x
+
+    return tuple(sorted((k, _freeze(v)) for k, v in kw.items()))
+
+# tools/llm.py
+
+def _unfreeze(x):
+    """Convert the frozen (hashable) structures back into Python containers."""
+    if isinstance(x, tuple):
+        # dict-like? tuple of (key, value) pairs
+        if all(isinstance(i, tuple) and len(i) == 2 for i in x):
+            return {k: _unfreeze(v) for k, v in x}
+        # list/tuple-like
+        return [ _unfreeze(v) for v in x ]
+    return x
 
 
-def _mk_cache_key(
-    provider: str,
-    model: str,
-    temperature: float,
-    timeout: int,
-    streaming: bool,
-    base_url: Optional[str],
-    organization: Optional[str],
-    seed: Optional[int],
-    max_retries: int,
-    model_kwargs: Dict[str, Any],
-    azure_endpoint: Optional[str],
-    azure_api_version: Optional[str],
-) -> Tuple[Any, ...]:
-    """
-    Build a hashable cache key. Dicts are converted to sorted JSON strings.
-    """
-    mk_json = json.dumps(model_kwargs or {}, sort_keys=True, separators=(",", ":"))
-    return (
-        provider,
-        model,
-        round(temperature, 6),
-        int(timeout),
-        bool(streaming),
-        base_url or "",
-        organization or "",
-        seed if seed is not None else "",
-        int(max_retries),
-        mk_json,
-        azure_endpoint or "",
-        azure_api_version or "",
+@lru_cache(maxsize=32)
+def _cached_make_llm(key_tuple: tuple) -> ChatOpenAI:
+    cfg = dict(key_tuple)  # because _mk_cache_key returns tuple of (k, v)
+
+    # --- IMPORTANT: turn frozen tuples back into dicts/lists ---
+    mk_frozen = cfg.get("model_kwargs", ())
+    mk = _unfreeze(mk_frozen) if isinstance(mk_frozen, tuple) else (mk_frozen or {})
+    if not isinstance(mk, dict):
+        mk = {}
+    cfg["model_kwargs"] = mk
+    # -----------------------------------------------------------
+
+    provider = cfg["provider"]
+    common_kwargs = dict(
+        temperature=cfg["temperature"],
+        timeout=cfg["timeout"],
+        max_retries=cfg["max_retries"],
+        streaming=cfg["streaming"],
+        seed=cfg["seed"],
+        model_kwargs=cfg["model_kwargs"],  # now a dict
     )
-
-
-@lru_cache(maxsize=16)
-def _cached_make_llm(key: Tuple[Any, ...]) -> ChatOpenAI:
-    """
-    Create and return a LangChain LLM client using a normalized, hashable key.
-    We pass everything we need via the key itself (unpacked below).
-    """
-    (
-        provider,
-        model,
-        temperature,
-        timeout,
-        streaming,
-        base_url,
-        organization,
-        seed,
-        max_retries,
-        mk_json,
-        azure_endpoint,
-        azure_api_version,
-    ) = key
-
-    model_kwargs = json.loads(mk_json) if mk_json else {}
-
-    # Construct kwargs common to both OpenAI & AzureOpenAI variants (where supported)
-    common_kwargs: Dict[str, Any] = {
-        "model": model,
-        "temperature": temperature,
-        "timeout": timeout,
-        "streaming": streaming,
-        "max_retries": max_retries,
-        "model_kwargs": model_kwargs,
-    }
-    if base_url:
-        common_kwargs["base_url"] = base_url  # openai v1 supports base_url
-    if organization:
-        common_kwargs["organization"] = organization
-    if seed is not None:
-        # Supported by OpenAI API v1 via model_kwargs or top-level depending on LC version.
-        # Put in model_kwargs to be safest across versions.
-        common_kwargs["model_kwargs"] = {**model_kwargs, "seed": seed}
+    api_key = cfg["api_key"]
 
     if provider == "azure":
-        if AzureChatOpenAI is None:  # pragma: no cover
-            raise RuntimeError("Azure provider requested but AzureChatOpenAI is unavailable.")
-        # Azure-specific kwargs
-        azure_kwargs: Dict[str, Any] = {}
-        if azure_endpoint:
-            azure_kwargs["azure_endpoint"] = azure_endpoint
-        if azure_api_version:
-            azure_kwargs["api_version"] = azure_api_version
-        # Note: Azure key is read from OPENAI_API_KEY env var or provided by OpenAI SDK config.
-        return AzureChatOpenAI(**common_kwargs, **azure_kwargs)  # type: ignore[call-arg]
+        from langchain_openai import AzureChatOpenAI
+        return AzureChatOpenAI(
+            azure_deployment=cfg["azure_deployment"],
+            api_version=cfg["azure_api_version"],
+            azure_endpoint=cfg["azure_endpoint"],
+            api_key=api_key,
+            **common_kwargs,
+        )
     else:
-        # Default OpenAI-compatible (incl. self-hosted/OpenRouter/etc via base_url)
-        return ChatOpenAI(**common_kwargs)
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=cfg["model"],
+            api_key=api_key,
+            base_url=cfg["base_url"],
+            organization=cfg["organization"],
+            **common_kwargs,
+        )
 
-# -----------------------
-# Public factory function
-# -----------------------
+# ------- main API -------
 
 
 def get_llm(
@@ -186,19 +158,17 @@ def get_llm(
       - OPENAI_SEED (optional int)
       - OPENAI_API_TYPE=azure (switch to AzureChatOpenAI)
         * AZURE_OPENAI_ENDPOINT
-        * OPENAI_API_VERSION (Azure API version)
+        * OPENAI_API_VERSION
+        * AZURE_OPENAI_DEPLOYMENT (deployment name)
 
     Notes:
-      - If response_format is set to {"type":"json_object"} you should NOT enable streaming.
-      - This function is safe to call repeatedly; identical configs reuse the same client.
+      - If response_format is {"type":"json_object"} streaming will be disabled.
+      - Identical configs are cached.
     """
-    # Key/API setup
+    # API key
     key = api_key or _cfg("OPENAI_API_KEY")
     if not key:
         raise ValueError("OPENAI_API_KEY is not set.")
-
-    # The OpenAI Python SDK reads from env; set it here for consumers that rely on it.
-    os.environ.setdefault("OPENAI_API_KEY", key)
 
     # Base config
     m = model or _cfg("MODEL_NAME", "gpt-4o-mini") or "gpt-4o-mini"
@@ -207,44 +177,48 @@ def get_llm(
     retries = int(_cfg("OPENAI_MAX_RETRIES", "2") or 2)
     org = _cfg("OPENAI_ORGANIZATION")
     base_url = _cfg("OPENAI_BASE_URL")
-    seed_str = _cfg("OPENAI_SEED")
-    seed = int(seed_str) if seed_str and seed_str.isdigit() else None
+    seed = _parse_int(_cfg("OPENAI_SEED"))
 
     # Provider selection
     provider = (_cfg("OPENAI_API_TYPE", "openai") or "openai").strip().lower()
-    azure_endpoint = _cfg("AZURE_OPENAI_ENDPOINT")
-    azure_api_version = _cfg("OPENAI_API_VERSION")  # Azure uses this variable name in many setups
 
-    # Merge kwargs & JSON mode
+    # Normalize kwargs & JSON mode guard
     mk = _normalize_model_kwargs(model_kwargs, response_format)
-
-    # Guard: JSON mode + streaming is a bad combo
     if mk.get("response_format", {}).get("type") == "json_object" and streaming:
-        # Don't raise—just disable streaming to be helpful.
-        streaming = False
+        streaming = False  # JSON mode + streaming don't mix
 
-    # Build a cache key and return a cached client
+    # Azure specifics
+    azure_endpoint = _cfg("AZURE_OPENAI_ENDPOINT")
+    azure_api_version = _cfg("OPENAI_API_VERSION")
+    azure_deployment = _cfg("AZURE_OPENAI_DEPLOYMENT") or m  # fall back to model name if not provided
+
+    # Build cache key (include only serializable values)
     key_tuple = _mk_cache_key(
         provider=provider,
+        api_key=key,  # cached; if you prefer not to cache the raw key, hash it instead
         model=m,
         temperature=t,
         timeout=to,
+        max_retries=retries,
         streaming=streaming,
         base_url=base_url,
         organization=org,
         seed=seed,
-        max_retries=retries,
         model_kwargs=mk,
         azure_endpoint=azure_endpoint,
         azure_api_version=azure_api_version,
+        azure_deployment=azure_deployment,
     )
 
+    # Create (or fetch cached) client
     llm = _cached_make_llm(key_tuple)
 
-    # The underlying SDK also needs the API key at runtime; ensure env is set.
-    # (We don't pass api_key to ChatOpenAI directly so that caching remains stable.
-    #  If you prefer explicit passing, you can add api_key=key to common_kwargs and
-    #  include the key (or a hash) in the cache key—be mindful of logs/leaks.)
+    # Keep env in sync for libs that read OPENAI_API_KEY lazily
     os.environ["OPENAI_API_KEY"] = key
+    if provider == "azure":
+        if azure_endpoint:
+            os.environ["AZURE_OPENAI_ENDPOINT"] = azure_endpoint
+        if azure_api_version:
+            os.environ["OPENAI_API_VERSION"] = azure_api_version
 
     return llm

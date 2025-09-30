@@ -53,6 +53,17 @@ configure_logging()
 # --------------------------------------------------------------------------------------
 # Agent factory
 # --------------------------------------------------------------------------------------
+REAL_VARS = {"input", "agent_scratchpad", "tools", "tool_names"}
+
+
+def _escape_curly_braces_except(template: str, keep: set[str]) -> str:
+    # 1) Escape all braces
+    t = template.replace("{", "{{").replace("}", "}}")
+    # 2) Unescape the placeholders we really want
+    for v in keep:
+        t = t.replace("{{" + v + "}}", "{" + v + "}")
+    return t
+
 @st.cache_resource(show_spinner=False)
 def create_comprehensive_data_analysis_agent() -> AgentExecutor:
     """Create and cache the ReAct-style agent with all tools wired."""
@@ -80,7 +91,8 @@ def create_comprehensive_data_analysis_agent() -> AgentExecutor:
         create_chart_context_tool,
     ]
 
-    prompt = PromptTemplate.from_template(COMPREHENSIVE_AGENT_PROMPT)
+    safe_prompt_text = _escape_curly_braces_except(COMPREHENSIVE_AGENT_PROMPT, REAL_VARS)
+    prompt = PromptTemplate.from_template(safe_prompt_text)  # only needs {input}, {agent_scratchpad}, {tools?}
     agent = create_react_agent(llm, tools, prompt)
 
     return AgentExecutor(
@@ -392,7 +404,8 @@ def main() -> None:
                     )
 
                     with st.expander("📊 Dataset Preview"):
-                        st.dataframe(df_cleaned.head(3), use_container_width=True)
+                        # st.dataframe(df_cleaned.head(3), use_container_width=True)
+                        st.dataframe(df_cleaned.head(3), width="stretch")
                 else:
                     st.error("Uploaded file could not be parsed as a DataFrame.")
             except Exception as e:
@@ -410,7 +423,7 @@ def main() -> None:
                 if msg.get("chart") is not None:
                     st.plotly_chart(
                         msg["chart"],
-                        use_container_width=True,
+                        width="stretch",
                         key=f"chart_{msg['id']}",
                     )
 
@@ -431,7 +444,8 @@ def main() -> None:
 
                 text_slot.write(response)
                 if chart is not None:
-                    chart_slot.plotly_chart(chart, use_container_width=True)
+                    # chart_slot.plotly_chart(chart, use_container_width=True)
+                    chart_slot.plotly_chart(chart, width="stretch")
 
             st.session_state.messages.append(
                 {"id": assistant_id, "role": "assistant", "content": response, "chart": chart}
