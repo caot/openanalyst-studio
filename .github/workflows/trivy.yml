@@ -45,7 +45,7 @@ jobs:
           tags: openanalyst-studio:scan
       - uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: app:scan
+          image-ref: openanalyst-studio:scan
           format: sarif
           output: trivy-image.sarif
           ignore-unfixed: true
