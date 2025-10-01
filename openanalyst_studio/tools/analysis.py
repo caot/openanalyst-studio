@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 from langchain.tools import tool
 
@@ -13,25 +13,33 @@ from openanalyst_studio.tools.analysis_tool import generate_insights_tool  # noq
 
 # Prefer package-local prompt; fall back to a minimal one if unavailable.
 try:
-    from openanalyst_studio.prompts import INSIGHTS_ANALYSIS_PROMPT as INSIGHT_GENERATION_PROMPT  # type: ignore
+    from openanalyst_studio.prompts import (
+        INSIGHTS_ANALYSIS_PROMPT as INSIGHT_GENERATION_PROMPT,  # type: ignore
+    )
 except Exception:  # pragma: no cover
     INSIGHT_GENERATION_PROMPT = (
         "Generate business insights based on the data and visualization. Provide 3-5 key insights."
     )
+
+import traceback
+
+import structlog
+
+log = structlog.get_logger()
 
 # ------------------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------------------
 
 
-def _parse_kv_input(input_text: str) -> Dict[str, str]:
+def _parse_kv_input(input_text: str) -> dict[str, str]:
     """
     Parse strings like:
       "query: What drives sales? | df_summary: {...} | chart_context: bar over region"
     into a dict {'query': 'What drives sales?', 'df_summary': '{...}', 'chart_context': '...'}.
     Robust to missing sections and extra whitespace.
     """
-    out: Dict[str, str] = {}
+    out: dict[str, str] = {}
     if not isinstance(input_text, str):
         return out
     for chunk in input_text.split("|"):
@@ -95,6 +103,7 @@ def create_data_summary_tool(input_text: str) -> str:
         }
         return json.dumps(payload)
     except Exception as e:  # pragma: no cover
+        log.exception(traceback.format_exc())
         return json.dumps({"success": False, "error": f"Error in data summary tool: {e}"})
 
 
@@ -163,6 +172,7 @@ def create_data_summary(df) -> str:
                 try:
                     lines.append(f"  Range: {float(s.min()):.2f} to {float(s.max()):.2f}")
                 except Exception:
+                    log.exception(traceback.format_exc())
                     pass
 
         return "\n".join(lines)
@@ -170,7 +180,7 @@ def create_data_summary(df) -> str:
         return f"Error creating data summary: {e}"
 
 
-def create_chart_context(chart_type: str, decision: Dict[str, Any]) -> str:
+def create_chart_context(chart_type: str, decision: dict[str, Any]) -> str:
     """
     Compose a small chart context string from a decision dict.
     """

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Tuple
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -24,6 +24,7 @@ from openanalyst_studio.tools.analysis import (
 from openanalyst_studio.tools.data_processor import (
     classify_column_types,
     clean_financial_columns,
+    coerce_date_columns,
     data_cleaning,
     data_quality_assessment_tool,
     get_data_summary_tool,
@@ -32,7 +33,6 @@ from openanalyst_studio.tools.data_processor import (
     quick_data_check,
     save_uploaded_file,
     validate_columns_tool,
-    coerce_date_columns,
 )
 from openanalyst_studio.tools.visualization import (
     create_bar_chart_tool,
@@ -211,7 +211,7 @@ def _parse_chart_blob(text: str) -> dict | None:
     return None
 
 
-def process_agent_result(agent_result: Any, df: pd.DataFrame) -> Tuple[str, Any | None]:
+def process_agent_result(agent_result: Any, df: pd.DataFrame) -> tuple[str, Any | None]:
     """
     Process an agent's final answer. If it includes a chart spec, render it.
     Returns (text, plotly_figure_or_None)
@@ -259,7 +259,7 @@ def process_agent_result(agent_result: Any, df: pd.DataFrame) -> Tuple[str, Any 
 # --------------------------------------------------------------------------------------
 # Query execution
 # --------------------------------------------------------------------------------------
-def process_query(query: str, df: pd.DataFrame) -> Tuple[str, Any | None]:
+def process_query(query: str, df: pd.DataFrame) -> tuple[str, Any | None]:
     """Run the agent against the dataset and post-process the output."""
     try:
         agent_executor = create_comprehensive_data_analysis_agent()

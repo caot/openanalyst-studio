@@ -5,10 +5,13 @@ import csv
 import json
 import os
 import re
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+import traceback
+from collections.abc import Iterable
+from typing import Any
 
 import numpy as np
 import pandas as pd
+import structlog
 from langchain.tools import tool
 from pandas.api.types import (
     is_bool_dtype,
@@ -16,6 +19,8 @@ from pandas.api.types import (
     is_numeric_dtype,
     is_object_dtype,
 )
+
+log = structlog.get_logger()
 
 # Streamlit is optional: core functions should not depend on it.
 try:  # pragma: no cover
@@ -62,7 +67,7 @@ _NON_NUMERIC_RE = re.compile(r"[^\d\.\-]")
 
 def coerce_date_columns(
     df: pd.DataFrame,
-    force_cols: Optional[List[str]]=None,
+    force_cols: list[str] | None=None,
     sample_size: int=200,
     threshold: float=0.7,
 ) -> pd.DataFrame:
@@ -93,6 +98,7 @@ def coerce_date_columns(
         try:
             out[col] = pd.to_datetime(out[col], errors="coerce", utc=False)
         except Exception:
+            log.exception(traceback.format_exc())
             # leave column as-is if parsing fails
             pass
     return out
@@ -205,9 +211,8 @@ def data_cleaning(df: pd.DataFrame) -> pd.DataFrame:
         n = len(out)
         if n > 0:
             for col in out.columns:
-                if any(k in col.lower() for k in id_hints) and not is_object_dtype(out[col]):
-                    # high-cardinality (heuristic): >50% uniques suggests identifier
-                    if out[col].nunique(dropna=True) / n > 0.5:
+                if (any(k in col.lower() for k in id_hints) and not is_object_dtype(out[col])
+                    and out[col].nunique(dropna=True) / n > 0.5):  # high-cardinality (heuristic): >50% uniques suggests identifier
                         out[col] = out[col].astype(str)
 
         return out
@@ -241,7 +246,7 @@ def clean_financial_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 
-def classify_column_types(df: pd.DataFrame) -> Dict[str, List[str]]:
+def classify_column_types(df: pd.DataFrame) -> dict[str, list[str]]:
     """
     Classify columns into business categories:
       - business_metrics: numeric columns with KPI-ish names (sales, revenue, profit, etc.) or other numeric columns
@@ -286,7 +291,7 @@ def classify_column_types(df: pd.DataFrame) -> Dict[str, List[str]]:
 # ---------------------------
 
 
-def _sniff_csv_dialect(path: str, sample_bytes: int=8192) -> Tuple[str, Optional[str]]:
+def _sniff_csv_dialect(path: str, sample_bytes: int=8192) -> tuple[str, str | None]:
     """
     Sniff delimiter and encoding for CSV. Returns (delimiter, encoding).
     Tries utf-8-sig first; falls back to utf-8.
@@ -304,7 +309,7 @@ def _sniff_csv_dialect(path: str, sample_bytes: int=8192) -> Tuple[str, Optional
     return ",", "utf-8"
 
 
-def load_file(file_path: str) -> Optional[pd.DataFrame]:
+def load_file(file_path: str) -> pd.DataFrame | None:
     """Load CSV/Excel/JSON/Parquet with sensible defaults and light heuristics."""
     try:
         lower = file_path.lower()
@@ -323,7 +328,7 @@ def load_file(file_path: str) -> Optional[pd.DataFrame]:
         return None
 
 
-def save_uploaded_file(uploaded_file) -> Optional[str]:
+def save_uploaded_file(uploaded_file) -> str | None:
     """Save uploaded file to ./document safely (prevents path traversal)."""
     try:
         os.makedirs("document", exist_ok=True)
@@ -360,11 +365,11 @@ def get_data_summary_tool(input_text: str) -> str:
         return json.dumps({"success": False, "error": f"Error in data summary tool: {e}"})
 
 
-def get_data_summary(df: pd.DataFrame) -> Dict[str, Any]:
+def get_data_summary(df: pd.DataFrame) -> dict[str, Any]:
     """Generate a compact DataFrame summary for LLMs (JSON-serializable)."""
     try:
         numerics = df.select_dtypes(include="number")
-        numeric_summary: Dict[str, Dict[str, float]] = {}
+        numeric_summary: dict[str, dict[str, float]] = {}
         if not numerics.empty:
             for col, stats in numerics.describe().to_dict().items():
                 numeric_summary[str(col)] = {
@@ -390,7 +395,7 @@ def validate_columns_tool(input_text: str) -> str:
     Note: This tool signals intent; actual validation requires the runtime dataset.
     """
     try:
-        cols: List[str] = []
+        cols: list[str] = []
         text = input_text.strip()
         if "columns:" in text:
             part = text.split("columns:", 1)[1].strip()
@@ -410,7 +415,7 @@ def validate_columns_tool(input_text: str) -> str:
         return json.dumps({"success": False, "error": f"Error in column validation tool: {e}"})
 
 
-def validate_columns(df: pd.DataFrame, required_cols: Iterable[str]) -> Tuple[bool, str]:
+def validate_columns(df: pd.DataFrame, required_cols: Iterable[str]) -> tuple[bool, str]:
     """Validate that required_cols are present in df.columns."""
     try:
         missing = [c for c in required_cols if c not in df.columns]
@@ -458,7 +463,7 @@ def data_quality_assessment_tool(input_text: str) -> str:
         return json.dumps({"success": False, "error": f"Error in data quality assessment tool: {e}"})
 
 
-def quick_data_check(df: pd.DataFrame) -> Dict[str, Any]:
+def quick_data_check(df: pd.DataFrame) -> dict[str, Any]:
     """Compute lightweight quality indicators for dashboards/agents."""
     try:
         return {

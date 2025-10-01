@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -25,12 +25,12 @@ class ChartOptions(BaseModel):
     Generic chart options that frontends can safely read.
     Keep this conservative—tool-specific options can be merged in the UI layer.
     """
-    agg: Optional[Literal["sum", "mean", "count", "min", "max"]] = None
-    bins: Optional[int] = Field(default=None, ge=1, description="Number of bins (histogram).")
+    agg: Literal["sum", "mean", "count", "min", "max"] | None = None
+    bins: int | None = Field(default=None, ge=1, description="Number of bins (histogram).")
     stacked: bool = False
     orientation: Literal["v", "h"] = "v"
-    trendline: Optional[Literal["ols", "lowess"]] = None
-    sort: Optional[Literal["asc", "desc"]] = None
+    trendline: Literal["ols", "lowess"] | None = None
+    sort: Literal["asc", "desc"] | None = None
 
     model_config = dict(extra="ignore")
 
@@ -39,13 +39,13 @@ class DatasetContext(BaseModel):
     """
     Minimal dataset context the viz-decider needs.
     """
-    columns: List[str] = Field(default_factory=list)
-    dtypes: Dict[str, str] = Field(default_factory=dict)
-    sample: Dict[str, Any] = Field(default_factory=dict)
+    columns: list[str] = Field(default_factory=list)
+    dtypes: dict[str, str] = Field(default_factory=dict)
+    sample: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("columns", mode="before")
     @classmethod
-    def _coerce_columns(cls, v: Any) -> List[str]:
+    def _coerce_columns(cls, v: Any) -> list[str]:
         if v is None:
             return []
         if isinstance(v, (list, tuple)):
@@ -54,7 +54,7 @@ class DatasetContext(BaseModel):
 
     @field_validator("dtypes", mode="before")
     @classmethod
-    def _coerce_dtypes(cls, v: Any) -> Dict[str, str]:
+    def _coerce_dtypes(cls, v: Any) -> dict[str, str]:
         if v is None:
             return {}
         if isinstance(v, dict):
@@ -68,10 +68,10 @@ class ChartHints(BaseModel):
     """
     Optional hints to steer chart selection.
     """
-    chart_type: Optional[ChartType] = None
-    x: Optional[str] = None
-    y: Optional[str] = None
-    title: Optional[str] = None
+    chart_type: ChartType | None = None
+    x: str | None = None
+    y: str | None = None
+    title: str | None = None
 
     @field_validator("x", "y", "title", mode="before")
     @classmethod
@@ -92,9 +92,9 @@ class ChartSpec(BaseModel):
     """
     chart_type: ChartType
     x: str = Field(..., min_length=1, description="Column name for X axis / category.")
-    y: Optional[str] = Field(default=None, description="Column name for Y axis (if applicable).")
-    group: Optional[str] = Field(default=None, description="Optional grouping column.")
-    title: Optional[str] = Field(default=None, max_length=120)
+    y: str | None = Field(default=None, description="Column name for Y axis (if applicable).")
+    group: str | None = Field(default=None, description="Optional grouping column.")
+    title: str | None = Field(default=None, max_length=120)
     options: ChartOptions = Field(default_factory=ChartOptions)
 
     @field_validator("title", mode="before")
@@ -106,7 +106,7 @@ class ChartSpec(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def _validate_axes(self) -> "ChartSpec":
+    def _validate_axes(self) -> ChartSpec:
         """
         Enforce minimal axis requirements based on chart type:
           - bar/line/scatter/box: require y
@@ -128,7 +128,7 @@ class VisualizationInput(BaseModel):
     """
     query: str = Field(..., min_length=2, description="User question or instruction.")
     dataset_context: DatasetContext
-    chart_hints: Optional[ChartHints] = None
+    chart_hints: ChartHints | None = None
 
     @field_validator("query", mode="before")
     @classmethod
@@ -147,8 +147,8 @@ class VisualizationOutput(BaseModel):
 
 class AnalysisInput(BaseModel):
     question: str = Field(..., min_length=2)
-    data_summary: Dict[str, Any]
-    chart_context: Optional[Dict[str, Any]] = None
+    data_summary: dict[str, Any]
+    chart_context: dict[str, Any] | None = None
 
     @field_validator("question", mode="before")
     @classmethod
@@ -162,11 +162,11 @@ class AnalysisOutput(BaseModel):
     ok: bool = True
     answer: str = Field(..., min_length=1)
     # Optional evidence the UI can show (e.g., which metrics informed the answer)
-    evidence: List[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
 
     @field_validator("evidence", mode="before")
     @classmethod
-    def _coerce_evidence(cls, v: Any) -> List[str]:
+    def _coerce_evidence(cls, v: Any) -> list[str]:
         if v is None:
             return []
         if isinstance(v, str):

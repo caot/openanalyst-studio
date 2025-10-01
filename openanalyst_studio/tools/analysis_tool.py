@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any
 
 from langchain.callbacks.manager import CallbackManagerForToolRun
 from langchain.tools import BaseTool
@@ -21,7 +21,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def _compact_summary(summary: Dict[str, Any], max_chars: int=8000) -> Dict[str, Any]:
+def _compact_summary(summary: dict[str, Any], max_chars: int=8000) -> dict[str, Any]:
     """
     Reduce summary size to avoid hitting model/context limits:
     - Drop very large arrays and keep short samples
@@ -35,7 +35,7 @@ def _compact_summary(summary: Dict[str, Any], max_chars: int=8000) -> Dict[str, 
         # If summary isn't fully serializable, fall through to compaction
         pass
 
-    compact: Dict[str, Any] = {}
+    compact: dict[str, Any] = {}
     for k, v in summary.items():
         try:
             if isinstance(v, (list, tuple)):
@@ -66,7 +66,7 @@ def _compact_summary(summary: Dict[str, Any], max_chars: int=8000) -> Dict[str, 
     return compact
 
 
-def _extract_json(text: str) -> Optional[dict]:
+def _extract_json(text: str) -> dict | None:
     """
     Robustly parse a JSON object from model text. Supports:
     - Raw JSON
@@ -152,8 +152,8 @@ class AnalysisTool(BaseTool):
     def _infer(
         self,
         question: str,
-        data_summary: Dict[str, Any],
-        run_manager: Optional[CallbackManagerForToolRun],
+        data_summary: dict[str, Any],
+        run_manager: CallbackManagerForToolRun | None,
     ) -> str:
         llm = self._llm()
         compact = _compact_summary(data_summary or {}, max_chars=self.max_summary_chars)
@@ -199,9 +199,9 @@ class AnalysisTool(BaseTool):
     def _run(
         self,
         question: str,
-        data_summary: Dict[str, Any],
-        chart_context: Optional[Dict[str, Any]]=None,  # accepted but unused
-        run_manager: Optional[CallbackManagerForToolRun]=None,
+        data_summary: dict[str, Any],
+        chart_context: dict[str, Any] | None=None,  # accepted but unused
+        run_manager: CallbackManagerForToolRun | None=None,
     ) -> str:
         log = tool_logger(self.name).bind(question=(question or "")[:120])
         with timed(log, action="analysis"):

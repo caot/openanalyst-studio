@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, Iterable, Optional
+from collections.abc import Iterable
+from typing import Any
 
 import pandas as pd
 import plotly.express as px
@@ -56,7 +57,7 @@ def _sanitize_json_block(text: str) -> str:
     return t.strip()
 
 
-def _parse_df_info(df_info: str) -> Dict[str, Any]:
+def _parse_df_info(df_info: str) -> dict[str, Any]:
     """Parse df_info string → dict with robust fallbacks."""
     s = _safe_str(df_info).strip()
     if not s:
@@ -76,7 +77,7 @@ def _parse_df_info(df_info: str) -> Dict[str, Any]:
                 return {"columns": [], "dtypes": {}, "sample": {}}
 
 
-def _ensure_numeric(df: pd.DataFrame, col: str) -> Optional[str]:
+def _ensure_numeric(df: pd.DataFrame, col: str) -> str | None:
     """If column isn't numeric, try a clean-to-numeric conversion copy; return a temp name if created."""
     if col not in df.columns:
         return None
@@ -97,7 +98,7 @@ def _ensure_numeric(df: pd.DataFrame, col: str) -> Optional[str]:
     return None
 
 
-def _ensure_datetime(df: pd.DataFrame, col: str) -> Optional[str]:
+def _ensure_datetime(df: pd.DataFrame, col: str) -> str | None:
     if col not in df.columns:
         return None
     if pd.api.types.is_datetime64_any_dtype(df[col]):
@@ -113,7 +114,7 @@ def _ensure_datetime(df: pd.DataFrame, col: str) -> Optional[str]:
     return None
 
 
-def _best_match(available: Iterable[str], target: Optional[str]) -> Optional[str]:
+def _best_match(available: Iterable[str], target: str | None) -> str | None:
     if not target:
         return None
     t = target.lower()
@@ -149,7 +150,7 @@ def _best_match(available: Iterable[str], target: Optional[str]) -> Optional[str
     return None
 
 
-def _title_from_rules(chart_type: str, x: str, y: Optional[str], agg: Optional[str]) -> str:
+def _title_from_rules(chart_type: str, x: str, y: str | None, agg: str | None) -> str:
     if chart_type == "histogram":
         return f"Distribution of {x}"
     if chart_type == "pie":
@@ -166,7 +167,7 @@ def _title_from_rules(chart_type: str, x: str, y: Optional[str], agg: Optional[s
     return f"{_safe_str(y) or 'Count'} by {x}"
 
 
-def _maybe_llm_title(chart_type: str, x_col: str, y_col: Optional[str], df: pd.DataFrame, agg_func: Optional[str]) -> Optional[str]:
+def _maybe_llm_title(chart_type: str, x_col: str, y_col: str | None, df: pd.DataFrame, agg_func: str | None) -> str | None:
     """Optional LLM title. Disabled by default unless OA_USE_LLM_TITLES=1."""
     if os.getenv("OA_USE_LLM_TITLES", "0") not in ("1", "true", "True"):
         return None
@@ -216,7 +217,7 @@ def _apply_layout(fig, title: str, x_title: str, y_title: str):
 # ---------------------------------------------------------------------
 
 
-def create_bar_chart(df: pd.DataFrame, x_col: str, y_col: Optional[str], title: Optional[str], agg_func: str="sum"):
+def create_bar_chart(df: pd.DataFrame, x_col: str, y_col: str | None, title: str | None, agg_func: str="sum"):
     try:
         if not x_col:
             return None
@@ -258,7 +259,7 @@ def create_bar_chart(df: pd.DataFrame, x_col: str, y_col: Optional[str], title: 
         return None
 
 
-def create_line_chart(df: pd.DataFrame, x_col: str, y_col: str, title: Optional[str]):
+def create_line_chart(df: pd.DataFrame, x_col: str, y_col: str, title: str | None):
     try:
         if not x_col or not y_col:
             return None
@@ -314,7 +315,7 @@ def create_line_chart(df: pd.DataFrame, x_col: str, y_col: str, title: Optional[
         return None
 
 
-def create_pie_chart(df: pd.DataFrame, category_col: str, value_col: Optional[str], title: Optional[str]):
+def create_pie_chart(df: pd.DataFrame, category_col: str, value_col: str | None, title: str | None):
     try:
         if not category_col:
             return None
@@ -360,7 +361,7 @@ def create_pie_chart(df: pd.DataFrame, category_col: str, value_col: Optional[st
         return None
 
 
-def create_histogram(df: pd.DataFrame, column: str, title: Optional[str], bins: int=50):
+def create_histogram(df: pd.DataFrame, column: str, title: str | None, bins: int=50):
     try:
         if not column:
             return None
@@ -384,7 +385,7 @@ def create_histogram(df: pd.DataFrame, column: str, title: Optional[str], bins: 
         return None
 
 
-def create_scatter_plot(df: pd.DataFrame, x_col: str, y_col: str, title: Optional[str]):
+def create_scatter_plot(df: pd.DataFrame, x_col: str, y_col: str, title: str | None):
     try:
         if not x_col or not y_col:
             return None
@@ -423,7 +424,7 @@ def create_scatter_plot(df: pd.DataFrame, x_col: str, y_col: str, title: Optiona
         return None
 
 
-def create_box_plot(df: pd.DataFrame, category_col: str, value_col: str, title: Optional[str]):
+def create_box_plot(df: pd.DataFrame, category_col: str, value_col: str, title: str | None):
     try:
         if not category_col or not value_col:
             return None
@@ -482,9 +483,6 @@ def create_bar_chart_tool(input_text: str) -> str:
         })
     except Exception as e:  # pragma: no cover
         return json.dumps({"error": f"Error in bar chart tool: {e}"})
-
-import json
-from langchain.tools import tool
 
 
 @tool
@@ -618,7 +616,7 @@ def create_visualization_tool(input_text: str) -> str:
         content = _sanitize_json_block(content)
 
         # 3) Parse decision JSON; fallback defaults if needed
-        decision: Dict[str, Any]
+        decision: dict[str, Any]
         try:
             decision = json.loads(content)
         except Exception:
@@ -645,7 +643,7 @@ def create_visualization_tool(input_text: str) -> str:
         return json.dumps({"error": f"Error in visualization tool: {e}"})
 
 
-def execute_chart_template(df: pd.DataFrame, decision: Dict[str, Any]):
+def execute_chart_template(df: pd.DataFrame, decision: dict[str, Any]):
     """
     Execute template based on a decision dict:
       {chart_type, x_column, y_column, title, agg_func}

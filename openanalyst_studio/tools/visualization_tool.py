@@ -1,7 +1,7 @@
 # openanalyst_studio/tools/visualization_tool.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from langchain.tools import BaseTool
 from tenacity import Retrying, stop_after_attempt, wait_exponential_jitter
@@ -17,19 +17,19 @@ from openanalyst_studio.tools.schemas import (
 from openanalyst_studio.utils.logging_utils import timed, tool_logger
 
 
-def _lower(s: Optional[str]) -> str:
+def _lower(s: str | None) -> str:
     return (s or "").strip().lower()
 
 
 def _safe_get(
-    d: Optional[Dict[str, Any]], key: str, default: Any=None
+    d: dict[str, Any] | None, key: str, default: Any=None
 ) -> Any:
     if not isinstance(d, dict):
         return default
     return d.get(key, default)
 
 
-def _classify_columns(ctx: DatasetContext) -> Tuple[List[str], List[str], List[str]]:
+def _classify_columns(ctx: DatasetContext) -> tuple[list[str], list[str], list[str]]:
     """Return (categorical, numeric, temporal) columns based on dtypes/names."""
     dtypes = {k: _lower(v) for k, v in ctx.dtypes.items()} if isinstance(ctx.dtypes, dict) else {}
     cols = list(ctx.columns) if isinstance(ctx.columns, list) else []
@@ -62,7 +62,7 @@ def _classify_columns(ctx: DatasetContext) -> Tuple[List[str], List[str], List[s
     return cats, nums, temps
 
 
-def _detect_intent(query_lc: str) -> Dict[str, bool]:
+def _detect_intent(query_lc: str) -> dict[str, bool]:
     """Lightweight intent flags from the query text."""
     return {
         "wants_trend": any(k in query_lc for k in ("trend", "over time", "by month", "monthly", "weekly", "daily", "year", "timeline")),
@@ -73,8 +73,8 @@ def _detect_intent(query_lc: str) -> Dict[str, bool]:
 
 
 def _apply_hints_first(
-    hints: Optional[ChartHints],
-) -> Tuple[Optional[ChartType], Optional[str], Optional[str], Optional[str]]:
+    hints: ChartHints | None,
+) -> tuple[ChartType | None, str | None, str | None, str | None]:
     """Take any explicit hints and return a partial decision tuple."""
     if not isinstance(hints, ChartHints):
         try:
@@ -92,7 +92,7 @@ def _apply_hints_first(
 def choose_chart_spec(
     query: str,
     dataset_context: DatasetContext,
-    chart_hints: Optional[ChartHints]=None,
+    chart_hints: ChartHints | None=None,
 ) -> ChartSpec:
     """
     Pure, testable chart selector:
@@ -192,7 +192,7 @@ class VisualizationTool(BaseTool):
         except Exception:
             return DatasetContext()  # empty context
 
-    def _coerce_hints(self, hints_like: Any) -> Optional[ChartHints]:
+    def _coerce_hints(self, hints_like: Any) -> ChartHints | None:
         if hints_like is None:
             return None
         if isinstance(hints_like, ChartHints):

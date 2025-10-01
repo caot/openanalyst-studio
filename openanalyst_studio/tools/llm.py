@@ -1,14 +1,14 @@
 # tools/llm.py
 import os
 from functools import lru_cache
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-from langchain_openai import ChatOpenAI, AzureChatOpenAI
+from langchain_openai import ChatOpenAI
 
 # ------- tiny helpers -------
 
 
-def _secrets() -> Dict[str, Any]:
+def _secrets() -> dict[str, Any]:
     try:
         import streamlit as st  # type: ignore
         return dict(st.secrets)  # copy into a plain dict
@@ -16,7 +16,7 @@ def _secrets() -> Dict[str, Any]:
         return {}
 
 
-def _cfg(key: str, default: Optional[str]=None) -> Optional[str]:
+def _cfg(key: str, default: str | None=None) -> str | None:
     """Config lookup: Streamlit secrets -> env -> default. Empty string -> None."""
     s = _secrets()
     v = s.get(key)
@@ -26,7 +26,7 @@ def _cfg(key: str, default: Optional[str]=None) -> Optional[str]:
     return v if v not in (None, "") else default
 
 
-def _parse_int(value: Any) -> Optional[int]:
+def _parse_int(value: Any) -> int | None:
     if value is None:
         return None
     if isinstance(value, int):
@@ -46,22 +46,24 @@ def _parse_int(value: Any) -> Optional[int]:
 
 
 def _clean_model_kwargs(mk_in):
-    if not mk_in: return {}
+    if not mk_in:
+        return {}
+
     reserved = {"seed", "response_format"}
     return {k: v for k, v in mk_in.items() if v not in ("", None) and k not in reserved}
 
 
 def _normalize_model_kwargs(
-    extra: Optional[Dict[str, Any]]=None,
-    response_format: Optional[Dict[str, Any]]=None,
-) -> Dict[str, Any]:
+    extra: dict[str, Any] | None=None,
+    response_format: dict[str, Any] | None=None,
+) -> dict[str, Any]:
     mk = _clean_model_kwargs(extra)
     if response_format:
         mk["response_format"] = response_format
     return mk
 
 
-def _mk_cache_key(**kw: Any) -> Tuple:
+def _mk_cache_key(**kw: Any) -> tuple:
     """Stable, hashable cache key."""
 
     def _freeze(x: Any) -> Any:
@@ -132,13 +134,13 @@ def _cached_make_llm(key_tuple: tuple) -> ChatOpenAI:
 
 
 def get_llm(
-    model: Optional[str]=None,
-    temperature: Optional[float]=None,
-    timeout: Optional[int]=None,
-    api_key: Optional[str]=None,
+    model: str | None=None,
+    temperature: float | None=None,
+    timeout: int | None=None,
+    api_key: str | None=None,
     streaming: bool=False,
-    response_format: Optional[Dict[str, Any]]=None,  # e.g. {"type": "json_object"}
-    model_kwargs: Optional[Dict[str, Any]]=None,
+    response_format: dict[str, Any] | None=None,  # e.g. {"type": "json_object"}
+    model_kwargs: dict[str, Any] | None=None,
 ) -> ChatOpenAI:
     """
     Return a cached ChatOpenAI/AzureChatOpenAI client configured from:
